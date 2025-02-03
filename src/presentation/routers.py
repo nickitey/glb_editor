@@ -1,19 +1,20 @@
-from typing import Annotated, Optional
-
-from fastapi import APIRouter, Depends, Header, Request, status
-from fastapi.responses import JSONResponse
 import json
-from pprint import pprint
-from src.presentation.requests import MaterialsRequestModel
 
+from fastapi import APIRouter, Depends, Request, status
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+
+from src.dependencies.dependencies import Container
+from src.domain.entities import PropertiesData
+from src.domain.usecases import ChangeParamsUseCase
+from src.presentation.requests import MaterialsRequestModel
 
 router = APIRouter(prefix="/glbeditor", tags=["Changing GLB-file parameters"])
 
 
 @router.post("/parameters")
 async def change_file_params(
-    # request: Request
-    request: MaterialsRequestModel
+    request: Request, usecase: ChangeParamsUseCase = Depends(Container)
 ):
     # Есть два варианта, как обрабатывать тело входящего запроса:
     # с валидацией и без.
@@ -51,30 +52,30 @@ async def change_file_params(
     # "Быть опциональными" - это быть всегда, но, если в теле запроса такого
     # поля/параметра нет, то модель ему устанавливает значение None.
     # Например:
-    """
-    class Foo(BaseModel):
-        a: Optional[int] = None
-        b: Optional[str] = None
 
-    Модель Foo говорит нам следующее: я могу валидировать запросы следующего
-    вида:
-    {
-        "a": 3,
-        "b": "hello"
-    },
-    {
-        "a": 100
-    },
-    {
-        "b": "oh, hi"
-    }
-    Все три такие запроса будут валидными. Но! После валидации у нас на руках
-    (то есть, в обработчике запросов) *всегда* будет объект с ДВУМЯ атрибутами.
-    Просто отсутствующий в запросе атрибут будет заполнен None:
-    foo.a = 3, foo.b = "hello,
-    foo.a = 100, foo.b = None,
-    foo.a = None, foo.b = "oh, hi"
-    """
+    # class Foo(BaseModel):
+    #     a: Optional[int] = None
+    #     b: Optional[str] = None
+
+    # Модель Foo говорит нам следующее: я могу валидировать запросы следующего
+    # вида:
+    # {
+    #     "a": 3,
+    #     "b": "hello"
+    # },
+    # {
+    #     "a": 100
+    # },
+    # {
+    #     "b": "oh, hi"
+    # }
+    # Все три такие запроса будут валидными. Но! После валидации у нас на руках
+    # (то есть, в обработчике запросов) *всегда* будет объект с ДВУМЯ атрибутами.
+    # Просто отсутствующий в запросе атрибут будет заполнен None:
+    # foo.a = 3, foo.b = "hello,
+    # foo.a = 100, foo.b = None,
+    # foo.a = None, foo.b = "oh, hi"
+
     # И вот здесь уже другая проблема: нам приходят только изменения, которые
     # необходимо внести в имеющийся файл. И при применении изменений к файлу
     # может случиться так, что мы своими Foo.attribute = None случайно заменим
@@ -115,6 +116,20 @@ async def change_file_params(
     # и работоспособность со всеми программными продуктами, которые тоже его
     # используют.
 
-    pprint(json.loads(
-        request.model_dump_json()
-    ))
+    request_binary_data = await request.body()
+    request_data = json.loads(request_binary_data.decode())
+
+    try:
+        _ = MaterialsRequestModel.model_validate(request_data)
+    except ValidationError:
+        return JSONResponse(
+            {"description": "Ошибка валидации тела запроса"},
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+    else:
+        _ = None
+        data_object = PropertiesData(
+            filepath=request_data["filepath"],
+            materials=request_data["materials"],
+        )
+        await usecase.params_editor_usecase.invoke(data_object)
