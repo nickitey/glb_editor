@@ -1,0 +1,8 @@
+services:
+  glb_editor:
+    build:
+      context: .
+    env_file: .env
+    ports: 
+      - 9000:9000
+    command: [ "uvicorn", "src:app", "--host", "0.0.0.0", "--port", "9000" ]
