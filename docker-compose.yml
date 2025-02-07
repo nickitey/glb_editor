@@ -4,7 +4,7 @@ services:
       context: .
     env_file: .env
     volumes:
-      - ./src/:/usr/apps/glb_editor/
+      - ./:/usr/apps/glb_editor
       - ${SOURCE_DIR}:/usr/glb/source
       - ${RESULTS_DIR}:/usr/glb/results
       - ${TEXTURES_DIR}:/usr/glb/textures

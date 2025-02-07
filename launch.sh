@@ -6,7 +6,7 @@ echo "$(date +%H:%M:%S\ %d.%m.%Y): Сборка образа веб-сервер
 echo "$(date +%H:%M:%S\ %d.%m.%Y): Запускаю контейнер с сервером. Сервер слушает запросы, поступающие на порт $UVICORN_PORT хоста"
 docker run --rm \
 	--name ar_converter \
-    -v $PWD/src/:/usr/apps/glb_editor/ \
+    -v $PWD/:/usr/apps/glb_editor/ \
 	-v $SOURCE_DIR:/usr/glb/source \
     -v $RESULTS_DIR:/usr/glb/results \
     -v $TEXTURES_DIR:/usr/glb/textures \
