@@ -3,6 +3,11 @@ services:
     build:
       context: .
     env_file: .env
+    volumes:
+      - ./src/:/usr/apps/glb_editor/
+      - ${SOURCE_DIR}:/usr/glb/source
+      - ${RESULTS_DIR}:/usr/glb/results
+      - ${TEXTURES_DIR}:/usr/glb/textures
     ports: 
-      - 9000:9000
-    command: [ "uvicorn", "src:app", "--host", "0.0.0.0", "--port", "9000" ]
+      - ${UVICORN_PORT}:9000
+    command: [ "uvicorn", "src:app", "--host", "0.0.0.0", "--port", "9000", "--workers", "${UVICORN_WORKERS}" ]
