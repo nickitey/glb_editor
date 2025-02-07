@@ -11,10 +11,8 @@ from src.core.exceptions import GLBEditorException
 from src.core.settings import settings
 from src.data.helpers import get_filename_from_timestamp
 from src.domain.entities import PropertiesData, TexturesData
-from src.domain.repositories import (
-    IGLBParamsRepository,
-    IGLBTexturesRepository,
-)
+from src.domain.repositories import (IGLBParamsRepository,
+                                     IGLBTexturesRepository)
 
 
 class GLBParamsRepository(IGLBParamsRepository):
@@ -44,7 +42,7 @@ class GLBParamsRepository(IGLBParamsRepository):
     async def change_parameters(self, request_data_object: PropertiesData):
         filepath = os.path.join(
             settings.editor.source_dir, request_data_object.filepath
-            )
+        )
         gltf = GLTF2().load(filepath)
         gltf_dict = json.loads(gltf.gltf_to_json())
         materials = gltf_dict["materials"]
@@ -71,9 +69,7 @@ class GLBParamsRepository(IGLBParamsRepository):
             result_filepath = os.path.join(
                 settings.editor.results_dir, new_filename
             )
-            back_convert.save(
-                result_filepath
-            )
+            back_convert.save(result_filepath)
         except Exception as e:
             raise GLBEditorException(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -86,10 +82,10 @@ class GLBTexturesRepository(IGLBTexturesRepository):
     async def change_textures(self, request_data_object: TexturesData):
         glbfilepath = os.path.join(
             settings.editor.source_dir, request_data_object.glbfilepath
-            )
+        )
         texture_filepath = os.path.join(
             settings.editor.textures_dir, request_data_object.texturefilepath
-            )
+        )
         gltf = GLTF2().load(glbfilepath)
         gltf_dict = json.loads(gltf.gltf_to_json())
         materials = gltf_dict["materials"]
@@ -127,9 +123,7 @@ class GLBTexturesRepository(IGLBTexturesRepository):
                 result_filepath = os.path.join(
                     settings.editor.results_dir, new_filename
                 )
-                gltf.save(
-                    result_filepath
-                )
+                gltf.save(result_filepath)
             except Exception as e:
                 raise GLBEditorException(
                     status.HTTP_500_INTERNAL_SERVER_ERROR,

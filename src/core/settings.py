@@ -1,7 +1,7 @@
 import os
-from dotenv import find_dotenv, load_dotenv
 from dataclasses import dataclass, field
 
+from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv())
 
@@ -10,8 +10,8 @@ load_dotenv(find_dotenv())
 class FastAPIAppConfig:
     mount_swagger: bool = os.getenv("APP__MOUNT_SWAGGER")
     mount_redoc: bool = os.getenv("APP__MOUNT_REDOC")
-    
-    
+
+
 @dataclass
 class GLBEditorSettings:
     source_dir: str = "/usr/glb/source"

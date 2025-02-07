@@ -7,10 +7,8 @@ from pydantic import ValidationError
 from src.dependencies.dependencies import Container
 from src.domain.entities import PropertiesData, TexturesData
 from src.domain.usecases import ChangeParamsUseCase, ChangeTexturesUseCase
-from src.presentation.requests import (
-    MaterialsRequestModel,
-    TexturesRequestModel,
-)
+from src.presentation.requests import (MaterialsRequestModel,
+                                       TexturesRequestModel)
 
 router = APIRouter(prefix="/glbeditor", tags=["Changing GLB-file parameters"])
 
