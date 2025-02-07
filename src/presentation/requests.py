@@ -27,10 +27,12 @@ class MaterialModel(BaseModel):
     normalMaterialTexture: NormalMaterialTextureModel | None = None
 
 
-class TexturesModel(BaseModel):
-    ...
-
-
 class MaterialsRequestModel(BaseModel):
     filepath: str
+    materials: List[MaterialModel]
+
+
+class TexturesRequestModel(BaseModel):
+    glbfilepath: str
+    texturefilepath: str
     materials: List[MaterialModel]

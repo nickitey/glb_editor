@@ -5,9 +5,12 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from src.dependencies.dependencies import Container
-from src.domain.entities import PropertiesData
-from src.domain.usecases import ChangeParamsUseCase
-from src.presentation.requests import MaterialsRequestModel
+from src.domain.entities import PropertiesData, TexturesData
+from src.domain.usecases import ChangeParamsUseCase, ChangeTexturesUseCase
+from src.presentation.requests import (
+    MaterialsRequestModel,
+    TexturesRequestModel,
+)
 
 router = APIRouter(prefix="/glbeditor", tags=["Changing GLB-file parameters"])
 
@@ -121,9 +124,9 @@ async def change_file_params(
 
     try:
         _ = MaterialsRequestModel.model_validate(request_data)
-    except ValidationError:
+    except ValidationError as e:
         return JSONResponse(
-            {"description": "Ошибка валидации тела запроса"},
+            {"description": f"Ошибка валидации тела запроса: {e}"},
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         )
     else:
@@ -132,4 +135,32 @@ async def change_file_params(
             filepath=request_data["filepath"],
             materials=request_data["materials"],
         )
-        await usecase.params_editor_usecase.invoke(data_object)
+        result = await usecase.params_editor_usecase.invoke(data_object)
+
+        return JSONResponse(result, status.HTTP_201_CREATED)
+
+
+@router.post("/textures")
+async def change_file_textures(
+    request: Request, usecase: ChangeTexturesUseCase = Depends(Container)
+):
+    request_binary_data = await request.body()
+    request_data = json.loads(request_binary_data.decode())
+
+    try:
+        _ = TexturesRequestModel.model_validate(request_data)
+    except ValidationError as e:
+        return JSONResponse(
+            {"description": f"Ошибка валидации тела запроса: {e}"},
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+    else:
+        _ = None
+        data_object = TexturesData(
+            glbfilepath=request_data["glbfilepath"],
+            texturefilepath=request_data["texturefilepath"],
+            materials=request_data["materials"],
+        )
+        result = await usecase.textures_editor_usecase.invoke(data_object)
+
+        return JSONResponse(result, status.HTTP_201_CREATED)

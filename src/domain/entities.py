@@ -8,4 +8,14 @@ class PropertiesData:
     materials: List[Dict[str, Any]]
 
     def __repr__(self):
-        return f"{self.filepath=}, {self.materials=}"
+        return f"{self.filepath=},\n{self.materials=}"
+
+
+@dataclass
+class TexturesData:
+    glbfilepath: str
+    texturefilepath: str
+    materials: List[Dict[str, Any]]
+
+    def __repr__(self):
+        return f"{self.glbfilepath=},\n{self.texturefilepath=},\n{self.materials=}"

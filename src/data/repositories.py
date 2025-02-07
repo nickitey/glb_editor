@@ -4,10 +4,15 @@ from copy import deepcopy
 
 from fastapi import status
 from pygltflib import GLTF2
+from pygltflib.utils import Image, ImageFormat
 
 from src.core.exceptions import GLBEditorException
-from src.domain.entities import PropertiesData
-from src.domain.repositories import IGLBParamsRepository
+from src.data.helpers import get_filename_from_timestamp
+from src.domain.entities import PropertiesData, TexturesData
+from src.domain.repositories import (
+    IGLBParamsRepository,
+    IGLBTexturesRepository,
+)
 
 
 class GLBParamsRepository(IGLBParamsRepository):
@@ -23,7 +28,6 @@ class GLBParamsRepository(IGLBParamsRepository):
                     and type(temp[key]) in (int, float)
                 )
             except AssertionError:
-                print(dic2[key], temp[key], sep="\n\n")
                 raise GLBEditorException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="Заменяющие параметры GLB-файла должны быть одного типа данных",
@@ -40,8 +44,6 @@ class GLBParamsRepository(IGLBParamsRepository):
         gltf = GLTF2().load(request_data_object.filepath)
         gltf_dict = json.loads(gltf.gltf_to_json())
         materials = gltf_dict["materials"]
-        print(f"{materials=}")
-        print()
         changing_params_names = [
             material["name"] for material in request_data_object.materials
         ]
@@ -55,10 +57,66 @@ class GLBParamsRepository(IGLBParamsRepository):
                     )
                 )
                 materials[i] = self._unite_dict(materials[i], current_changes)
-        print(f"{materials=}")
-        print()
         gltf_dict["materials"] = materials
+        try:
+            back_convert = gltf.gltf_from_json(json.dumps(gltf_dict))
+            back_convert.set_binary_blob(gltf.binary_blob())
+            new_filename = get_filename_from_timestamp(
+                request_data_object.filepath
+            )
+            back_convert.save(
+                new_filename
+            )  # TODO: Реализовать сохранение в новую папку.
+        except Exception as e:
+            raise GLBEditorException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                f"Exceprion occured: {e}",
+            )
+        return {"status": "Готово", "filename": new_filename}
 
-        back_convert = gltf.gltf_from_json(json.dumps(gltf_dict))
-        back_convert.set_binary_blob(gltf.binary_blob())
-        back_convert.save("Stul_red1.glb")
+
+class GLBTexturesRepository(IGLBTexturesRepository):
+    async def change_textures(self, request_data_object: TexturesData):
+        gltf = GLTF2().load(request_data_object.glbfilepath)
+        gltf_dict = json.loads(gltf.gltf_to_json())
+        materials = gltf_dict["materials"]
+
+        new_image = Image()
+        new_image.uri = request_data_object.texturefilepath
+
+        for i in range(len(request_data_object.materials)):
+            old_picture_material = next(
+                filter(
+                    lambda material: material["name"]
+                    == request_data_object.materials[i]["name"],
+                    materials,
+                )
+            )
+            if old_picture_material.get("pbrMetallicRoughness") is not None:
+                old_picture_texture_idx = old_picture_material[
+                    "pbrMetallicRoughness"
+                ]["baseColorTexture"]["index"]
+            if old_picture_material.get("normalTexture") is not None:
+                old_picture_texture_idx = old_picture_material[
+                    "normalTexture"
+                ]["index"]
+
+            old_picture_idx = gltf.textures[old_picture_texture_idx].source
+
+            try:
+                gltf.images[old_picture_idx] = new_image
+                gltf.convert_images(
+                    image_format=ImageFormat.DATAURI, override=True
+                )
+                new_filename = get_filename_from_timestamp(
+                    request_data_object.glbfilepath
+                )
+                gltf.save(
+                    new_filename
+                )  # TODO: Реализовать сохранение в новую папку.
+            except Exception as e:
+                raise GLBEditorException(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    f"Exceprion occured: {e}",
+                )
+            return {"status": "Готово", "filename": new_filename}
