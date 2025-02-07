@@ -1,5 +1,6 @@
 # Здесь находится уровень непосредственной работы с данными
 import json
+import os
 from copy import deepcopy
 
 from fastapi import status
@@ -7,6 +8,7 @@ from pygltflib import GLTF2
 from pygltflib.utils import Image, ImageFormat
 
 from src.core.exceptions import GLBEditorException
+from src.core.settings import settings
 from src.data.helpers import get_filename_from_timestamp
 from src.domain.entities import PropertiesData, TexturesData
 from src.domain.repositories import (
@@ -22,7 +24,6 @@ class GLBParamsRepository(IGLBParamsRepository):
         temp = deepcopy(dic1)
         for key in dic2:
             try:
-                # TODO: Проверить это дерьмо.
                 assert type(dic2[key]) == type(temp[key]) or (
                     type(dic2[key]) in (int, float)
                     and type(temp[key]) in (int, float)
@@ -41,7 +42,10 @@ class GLBParamsRepository(IGLBParamsRepository):
         return temp
 
     async def change_parameters(self, request_data_object: PropertiesData):
-        gltf = GLTF2().load(request_data_object.filepath)
+        filepath = os.path.join(
+            settings.editor.source_dir, request_data_object.filepath
+            )
+        gltf = GLTF2().load(filepath)
         gltf_dict = json.loads(gltf.gltf_to_json())
         materials = gltf_dict["materials"]
         changing_params_names = [
@@ -64,9 +68,12 @@ class GLBParamsRepository(IGLBParamsRepository):
             new_filename = get_filename_from_timestamp(
                 request_data_object.filepath
             )
+            result_filepath = os.path.join(
+                settings.editor.results_dir, new_filename
+            )
             back_convert.save(
-                new_filename
-            )  # TODO: Реализовать сохранение в новую папку.
+                result_filepath
+            )
         except Exception as e:
             raise GLBEditorException(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -77,12 +84,18 @@ class GLBParamsRepository(IGLBParamsRepository):
 
 class GLBTexturesRepository(IGLBTexturesRepository):
     async def change_textures(self, request_data_object: TexturesData):
-        gltf = GLTF2().load(request_data_object.glbfilepath)
+        glbfilepath = os.path.join(
+            settings.editor.source_dir, request_data_object.glbfilepath
+            )
+        texture_filepath = os.path.join(
+            settings.editor.textures_dir, request_data_object.texturefilepath
+            )
+        gltf = GLTF2().load(glbfilepath)
         gltf_dict = json.loads(gltf.gltf_to_json())
         materials = gltf_dict["materials"]
 
         new_image = Image()
-        new_image.uri = request_data_object.texturefilepath
+        new_image.uri = texture_filepath
 
         for i in range(len(request_data_object.materials)):
             old_picture_material = next(
@@ -111,9 +124,12 @@ class GLBTexturesRepository(IGLBTexturesRepository):
                 new_filename = get_filename_from_timestamp(
                     request_data_object.glbfilepath
                 )
+                result_filepath = os.path.join(
+                    settings.editor.results_dir, new_filename
+                )
                 gltf.save(
-                    new_filename
-                )  # TODO: Реализовать сохранение в новую папку.
+                    result_filepath
+                )
             except Exception as e:
                 raise GLBEditorException(
                     status.HTTP_500_INTERNAL_SERVER_ERROR,

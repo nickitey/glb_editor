@@ -1,16 +1,28 @@
-from dotenv import find_dotenv
-from pydantic import BaseModel
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import os
+from dotenv import find_dotenv, load_dotenv
+from dataclasses import dataclass, field
 
 
-class FastAPIAppConfig(BaseModel):
-    mount_swagger: bool
-    mount_redoc: bool
+load_dotenv(find_dotenv())
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=find_dotenv(".env"), env_nested_delimiter="__"
-    )
+@dataclass
+class FastAPIAppConfig:
+    mount_swagger: bool = os.getenv("APP__MOUNT_SWAGGER")
+    mount_redoc: bool = os.getenv("APP__MOUNT_REDOC")
+    
+    
+@dataclass
+class GLBEditorSettings:
+    source_dir: str = "/usr/glb/source"
+    results_dir: str = "/usr/glb/results"
+    textures_dir: str = "/usr/glb/textures"
 
-    app: FastAPIAppConfig
+
+@dataclass
+class Settings:
+    app: FastAPIAppConfig = field(default_factory=FastAPIAppConfig)
+    editor: GLBEditorSettings = field(default_factory=GLBEditorSettings)
+
+
+settings = Settings()

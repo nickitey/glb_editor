@@ -1,9 +1,7 @@
 from fastapi import APIRouter, FastAPI
 
-from src.core.settings import Settings
+from src.core.settings import settings
 from src.presentation.routers import router
-
-settings = Settings()
 
 
 def _create_app(router: APIRouter):
