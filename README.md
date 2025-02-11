@@ -128,33 +128,91 @@
 
 ```JSON
     "glbfilepath": <str>,
-    "texturefilepath": <str>,
-    "materials": <array>
+    "files": [
+      {
+        "texturefilepath": <str>, 
+        "materials": <array>
+      }
+    ]
 ```
 
-Параметр `glbfilepath` аналогичен `filepath` из предыдущего пункта, `texturefilepath` - имя нового файла текстуры, который подлежит вставке в редактируемый файл и который уже находится в директории `TEXTURES_DIR`, `materials` снова повторяет таковой из предыдущего пункта.
+Параметр `glbfilepath` аналогичен `filepath` из предыдущего пункта, `files` - массив характеристик изменяемых текстур, где `texturefilepath` - имя нового файла текстуры, который подлежит вставке в редактируемый файл и который уже находится в директории `TEXTURES_DIR`, `materials` снова повторяет таковой из предыдущего пункта.
 
 В процессе обработки запроса в редактируемом файле по имени отбираются материалы, json-репрезентация которых содержится в теле запроса. После этого анализируется тип текстуры: `pbrMetallicRoughness`, `normalTexture` и вычисляется, на какие непосредственно объекты текстур ссылаются указанные материалы. После чего изображение, на которое ссылается текстура, подменяется на новое, полученное из файла, имя которого указано в запросе.
+
+**NB!**: попытка добавить текстуру, отсутствующую в файле, или изменить текстуру типа вызовет ошибку.
 
 Образец тела запроса:
 
 ```JSON
 {
     "glbfilepath": "AmoebaBabylonDissasemble.glb",
-    "texturefilepath": "volcano.png",
-    "materials": [
-        {
+    "files": [
+      {
+      "texturefilepath": "volcano.png",
+      "materials": [
+          {
             "name": "GLB Nucleus 01",
-            "pbrMetallicRoughness": {
-                "baseColorTexture": {}
-                },
-            "normalTexture": {}
-        }
+            "pbrMetallicRoughness": {"baseColorTexture": {}}
+          }]
+      },
+      {
+        "texturefilepath": "loo.png",
+        "materials": [
+          {
+            "normalTexture": {},
+            "pbrMetallicRoughness": {"baseColorTexture": {}},
+            "name": "GLB Water 1st"
+          }
+        ]
+      }
     ]
 }
 ```
 
-Веб-приложение возвращает ответ:
+**NB!**: попытка добавить текстуру, отсутствующую в файле, вызовет ошибку. Это касается как попытки добавить новый материал, так и случая, когда в запросе указан несоответствующий тип текстуры.
+
+Пример: допустим в файле `AmoebaBabylonDissasemble.gltf` существует материал с параметром `"name": "GLB Nucleus 01"`, который имеет такую структуру:
+
+```json
+{
+  "pbrMetallicRoughness": {
+    "baseColorTexture": {
+      "index": 0
+    },
+    "metallicFactor": 0,
+    "roughnessFactor": 0.5
+  },
+  "name": "GLB Nucleus 01",
+  "extensions": {
+    "KHR_materials_ior": {}
+  }
+}
+```
+
+В представленной структуре видно, что данный материал относится к типу `pbrMetallicRoughness`, за текстуры в котором отвечает параметр `baseColorTexture`.
+
+Попытка изменить в данном материале параметр `normalTexture`, т.е. запрос вида:
+
+```json
+{
+    "glbfilepath": "AmoebaBabylonDissasemble.glb",
+    "files": [
+      {
+      "texturefilepath": "volcano.png",
+      "materials": [
+          {
+            "name": "GLB Nucleus 01",
+            "normalTexture": {}
+          }]
+      },
+      ...
+    ]
+}
+```
+вызовет ошибку, поскольку текстуры вида `normalTexture` в нем нет.
+
+В случае успешной работы веб-приложение возвращает ответ:
 
 ```JSON
 {
