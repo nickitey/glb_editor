@@ -32,7 +32,11 @@ class MaterialsRequestModel(BaseModel):
     materials: List[MaterialModel]
 
 
-class TexturesRequestModel(BaseModel):
-    glbfilepath: str
+class _SingleTextureChange(BaseModel):
     texturefilepath: str
     materials: List[MaterialModel]
+
+
+class TexturesRequestModel(BaseModel):
+    glbfilepath: str
+    files: List[_SingleTextureChange]

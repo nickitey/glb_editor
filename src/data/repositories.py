@@ -2,7 +2,6 @@
 import json
 import os
 from copy import deepcopy
-from typing import Dict
 
 from fastapi import status
 from pygltflib import GLTF2
@@ -68,17 +67,16 @@ class GLBParamsRepository(IGLBParamsRepository):
             back_convert.save(result_filepath)
         except Exception as e:
             raise GLBEditorException(
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
-                f"Exceprion occured: {e}",
+                detail=f"Exception occurred: {e}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         return {"status": "Готово", "filename": new_filename}
 
 
 class GLBTexturesRepository(IGLBTexturesRepository):
     async def change_textures(self, request_data_object: TexturesData):
-        self._request_DTO = request_data_object
         glbfilepath = os.path.join(
-            settings.editor.source_dir, self._request_DTO.glbfilepath
+            settings.editor.source_dir, request_data_object.glbfilepath
         )
         gltf = GLTF2().load(glbfilepath)
 
@@ -90,79 +88,142 @@ class GLBTexturesRepository(IGLBTexturesRepository):
         try:
             # Первый этап - вносим изменения в структуру. Экономим память,
             # не создавая в ней новый объект (сборщик мусора сотрет старый).
-            gltf = self._process_gltf(gltf)
+            gltf = self._process_gltf(gltf, request_data_object)
 
             # Второй этап - конвертация изображения в необходимый формат,
             # который сможет храниться внутри единого GLB-файла.
             # К сожалению, библиотека pygltflib не поддерживает формат Bufferview.
             # Остается только кодирование в DataURI.
-            new_filename = self._process_glb(gltf)
+            new_filename = self._process_glb(gltf, request_data_object)
 
+        except GLBEditorException as e:
+            raise e
         except Exception as e:
             raise GLBEditorException(
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
-                f"Exceprion occured: {e}",
+                detail=f"Exception occured: {e}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         return {"status": "Готово", "filename": new_filename}
 
-    def _process_gltf(self, gltf: GLTF2) -> GLTF2:
-        texture_filepath = os.path.join(
-            settings.editor.textures_dir, self._request_DTO.texturefilepath
+    @staticmethod
+    def _replace_image_in_texture(
+        gltf: GLTF2,
+        material_name: str,
+        texture_name: str,
+        image: Image,
+        submaterial: str | None = None,
+    ) -> GLTF2:
+        target_materials = list(
+            filter(lambda material: material.name == material_name, gltf.materials)
         )
-        # gltf_dict = json.loads(gltf.gltf_to_json())
-        # materials = gltf_dict["materials"]
+        try:
+            assert len(target_materials) != 0
+        except AssertionError:
+            raise GLBEditorException(
+                detail="В редактируемом файле отсутствет материал с именем "
+                f"{material_name}, указанным в поступившем запросе",
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+            # TODO: Реализовать подобный функционал вместо ошибки.
+        target_material = target_materials[0]
+        source_texture = (
+            getattr(getattr(target_material, submaterial), texture_name)
+            if submaterial
+            else getattr(target_material, texture_name)
+        )
+        try:
+            assert source_texture is not None
+        except AssertionError:
+            raise GLBEditorException(
+                detail=f"В указанном материале {target_material.name}, "
+                f"отсутствует необходимая текстура {texture_name}.",
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+            # TODO: Реализовать подобный функционал вместо ошибки.
+        else:
+            image_index = gltf.textures[source_texture.index].source
+            gltf.images[image_index] = image
+            return gltf
 
-        new_image = Image()
-        new_image.uri = texture_filepath
-
-        # Если материалов, в которых необходимо заменить текстуру, много,
-        # мы сначала готовим указанные изменения, а затем конвертируем
-        # изображения в бинарный контент.
-        for replacement_material in self._request_DTO.materials:
-            old_picture_material = next(
-                filter(
-                    lambda material: material.name == replacement_material["name"],
-                    gltf.materials,
-                )
+    def _process_gltf(self, gltf: GLTF2, request_DTO: TexturesData) -> GLTF2:
+        for single_change in request_DTO.files:
+            texture_filepath = os.path.join(
+                settings.editor.textures_dir, single_change.texturefilepath
             )
 
-            metallic_material = getattr(old_picture_material, "pbrMetallicRoughness")
-            metallic_texture = getattr(
-                metallic_material, "baseColorTexture"
-            ) or getattr(metallic_material, "metallicRoughnessTexture")
-            normal_texture = getattr(old_picture_material, "normalTexture")
-            if metallic_texture and normal_texture:
-                try:
-                    assert metallic_texture.index == normal_texture.index
-                except AssertionError:
-                    raise GLBEditorException(
-                        'Материалы типа "pbrMetallicRoughness" и "normalTexture"'
-                        " ссылаются на разные текстуры. Возникла неопределенность"
-                        " в определении заменяемой текстуры GLB-файла",
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    )
-                else:
-                    old_picture_texture_idx = metallic_texture.index
-            elif metallic_texture or normal_texture:
-                existing_material = metallic_texture or normal_texture
-                old_picture_texture_idx = existing_material.index
-            else:
-                raise GLBEditorException(
-                    "В редактируемом файле отсутствет материал, указанный "
-                    "в поступившем запросе. Попробуйте в начале добавить "
-                    "материал в структуру файла, а затем изменить текстуру, "
-                    "на которую ссылается данный материал."
+            new_image = Image()
+            new_image.uri = texture_filepath
+
+            # Если материалов, в которых необходимо заменить текстуру, много,
+            # мы сначала готовим указанные изменения, а затем конвертируем
+            # изображения в бинарный контент.
+            for replacement_material in single_change.materials:
+                material_name = replacement_material["name"]
+
+                # Определим, какие материалы требуется заменить.
+                # В материале может быть два типа текстур металлическая
+                # (pbrMetallicRoughness) или "нормальная" (normalTexture).
+                # У металлической есть вложенность - там может быть либо
+                # baseColorTexture, либо metallicRoughnessTexture, а уже
+                # у какой-то из них искомый нам индекс.
+                # Посмотрим, есть ли в материале металлическая текстура
+                pbr_metallic_roughness = replacement_material.get(
+                    "pbrMetallicRoughness"
                 )
-                # TODO: Реализовать подобный функционал вместо ошибки.
+                # Если есть, то проверим, какого она типа:
+                if pbr_metallic_roughness:
+                    base_color_texture = pbr_metallic_roughness.get("baseColorTexture")
+                    metallic_roughness_texture = pbr_metallic_roughness.get(
+                        "metallicRoughnessTexture"
+                    )
+                    # Поскольку пустой словарь определяется как False в условных
+                    # конструкциях, мы явно проверяем тип данных, а затем
+                    # принимаем решение, какого типа текстуру будем искать
+                    # в изменяемом файле
+                    if isinstance(base_color_texture, dict):
+                        metallic_texture = "baseColorTexture"
+                    elif isinstance(metallic_roughness_texture, dict):
+                        metallic_texture = "metallicRoughnessTexture"
+                    else:
+                        raise GLBEditorException(
+                            detail="Необходимо уточнить в запросе, какой тип"
+                            " текстуры в материале типа pbrMetallicRoughness"
+                            " необходимо изменить.\n Поддерживаемые"
+                            " типы текстур: metallicRoughnessTexture"
+                            " и baseColorTexture.",
+                            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        )
+                else:
+                    # Если такая текстура в принципе отсутствует в запросе,
+                    # то мы явно объявим это в коде для наглядности.
+                    metallic_texture = None
 
-            old_picture_idx = gltf.textures[old_picture_texture_idx].source
-            gltf.images[old_picture_idx] = new_image
+                # Теперь посмотрим, есть ли в материале "нормальная текстура".
+                normal_texture = (
+                    "normalTexture"
+                    if isinstance(replacement_material.get("normalTexture"), dict)
+                    else None
+                )
 
+                # А затем заменим требуемые, определив сами объекты текстур в файле.
+                if metallic_texture:
+                    gltf = self._replace_image_in_texture(
+                        gltf,
+                        material_name,
+                        metallic_texture,
+                        new_image,
+                        "pbrMetallicRoughness",
+                    )
+                if normal_texture:
+                    gltf = self._replace_image_in_texture(
+                        gltf, material_name, "normalTexture", new_image
+                    )
         return gltf
 
-    def _process_glb(self, gltf: GLTF2) -> Dict[str, str]:
+    @staticmethod
+    def _process_glb(gltf: GLTF2, request_DTO: TexturesData) -> str:
         gltf.convert_images(image_format=ImageFormat.DATAURI, override=True)
-        new_filename = get_filename_from_timestamp(self._request_DTO.glbfilepath)
+        new_filename = get_filename_from_timestamp(request_DTO.glbfilepath)
         result_filepath = os.path.join(settings.editor.results_dir, new_filename)
         gltf.save(result_filepath)
         return new_filename

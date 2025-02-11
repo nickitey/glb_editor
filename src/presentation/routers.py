@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
+from dacite import from_dict
 
 from src.dependencies.dependencies import Container
 from src.domain.entities import PropertiesData, TexturesData
@@ -154,11 +155,7 @@ async def change_file_textures(
         )
     else:
         _ = None
-        data_object = TexturesData(
-            glbfilepath=request_data["glbfilepath"],
-            texturefilepath=request_data["texturefilepath"],
-            materials=request_data["materials"],
-        )
+        data_object = from_dict(TexturesData, request_data)
         result = await usecase.textures_editor_usecase.invoke(data_object)
 
         return JSONResponse(result, status.HTTP_201_CREATED)
