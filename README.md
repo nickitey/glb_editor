@@ -140,8 +140,6 @@
 
 В процессе обработки запроса в редактируемом файле по имени отбираются материалы, json-репрезентация которых содержится в теле запроса. После этого анализируется тип текстуры: `pbrMetallicRoughness`, `normalTexture` и вычисляется, на какие непосредственно объекты текстур ссылаются указанные материалы. После чего изображение, на которое ссылается текстура, подменяется на новое, полученное из файла, имя которого указано в запросе.
 
-**NB!**: попытка добавить текстуру, отсутствующую в файле, или изменить текстуру типа вызовет ошибку.
-
 Образец тела запроса:
 
 ```JSON
@@ -153,15 +151,20 @@
       "materials": [
           {
             "name": "GLB Nucleus 01",
-            "pbrMetallicRoughness": {"baseColorTexture": {}}
-          }]
+            "pbrMetallicRoughness": {
+              "baseColorTexture": {}
+              }
+          }
+        ]
       },
       {
         "texturefilepath": "loo.png",
         "materials": [
           {
             "normalTexture": {},
-            "pbrMetallicRoughness": {"baseColorTexture": {}},
+            "pbrMetallicRoughness": {
+              "baseColorTexture": {}
+              },
             "name": "GLB Water 1st"
           }
         ]
