@@ -4,8 +4,9 @@ import os
 from copy import deepcopy
 
 from fastapi import status
-from pygltflib import GLTF2
-from pygltflib.utils import Image, ImageFormat
+from pygltflib import (GLTF2, Material, NormalMaterialTexture,
+                       PbrMetallicRoughness, TextureInfo)
+from pygltflib.utils import Image, ImageFormat, Texture
 
 from src.core.exceptions import GLBEditorException
 from src.core.settings import settings
@@ -23,7 +24,8 @@ class GLBParamsRepository(IGLBParamsRepository):
         for key in dic2:
             try:
                 assert type(dic2[key]) == type(temp[key]) or (
-                    type(dic2[key]) in (int, float) and type(temp[key]) in (int, float)
+                    type(dic2[key]) in (int, float)
+                    and type(temp[key]) in (int, float)
                 )
             except AssertionError:
                 raise GLBEditorException(
@@ -62,8 +64,12 @@ class GLBParamsRepository(IGLBParamsRepository):
         try:
             back_convert = gltf.gltf_from_json(json.dumps(gltf_dict))
             back_convert.set_binary_blob(gltf.binary_blob())
-            new_filename = get_filename_from_timestamp(request_data_object.filepath)
-            result_filepath = os.path.join(settings.editor.results_dir, new_filename)
+            new_filename = get_filename_from_timestamp(
+                request_data_object.filepath
+            )
+            result_filepath = os.path.join(
+                settings.editor.results_dir, new_filename
+            )
             back_convert.save(result_filepath)
         except Exception as e:
             raise GLBEditorException(
@@ -105,8 +111,8 @@ class GLBTexturesRepository(IGLBTexturesRepository):
             )
         return {"status": "Готово", "filename": new_filename}
 
-    @staticmethod
     def _replace_image_in_texture(
+        self,
         gltf: GLTF2,
         material_name: str,
         texture_name: str,
@@ -114,7 +120,9 @@ class GLBTexturesRepository(IGLBTexturesRepository):
         submaterial: str | None = None,
     ) -> GLTF2:
         target_materials = list(
-            filter(lambda material: material.name == material_name, gltf.materials)
+            filter(
+                lambda material: material.name == material_name, gltf.materials
+            )
         )
         try:
             assert len(target_materials) != 0
@@ -131,19 +139,56 @@ class GLBTexturesRepository(IGLBTexturesRepository):
             if submaterial
             else getattr(target_material, texture_name)
         )
-        try:
-            assert source_texture is not None
-        except AssertionError:
-            raise GLBEditorException(
-                detail=f"В указанном материале {target_material.name}, "
-                f"отсутствует необходимая текстура {texture_name}.",
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        if source_texture is None:
+            return self._add_texture_to_material(
+                gltf, target_material, texture_name, image, submaterial
             )
-            # TODO: Реализовать подобный функционал вместо ошибки.
         else:
-            image_index = gltf.textures[source_texture.index].source
-            gltf.images[image_index] = image
-            return gltf
+            return self._change_texture_in_material(
+                gltf, source_texture, image
+            )
+
+    @staticmethod
+    def _add_texture_to_material(
+        gltf: GLTF2,
+        material: Material,
+        texture_name: str,
+        image: Image,
+        submaterial: str = None,
+    ) -> GLTF2:
+        examples = {
+            "pbrMetallicRoughness": PbrMetallicRoughness,
+            "normalTexture": NormalMaterialTexture,
+            "baseColorTexture": None,
+            "metallicRoughnessTexture": None,
+        }
+
+        gltf.images.append(image)
+
+        texture = Texture()
+        texture.source = len(gltf.images) - 1
+        gltf.textures.append(texture)
+
+        material_idx = gltf.materials.index(material)
+        if submaterial:
+            new_texture = examples[submaterial]()
+            new_nexture_info = TextureInfo()
+            new_nexture_info.index = len(gltf.textures) - 1
+            setattr(new_texture, texture_name, new_nexture_info)
+            setattr(gltf.materials[material_idx], submaterial, new_texture)
+        else:
+            new_texture = examples[texture_name]()
+            new_texture.index = len(gltf.textures) - 1
+            setattr(gltf.materials[material_idx], texture_name, new_texture)
+        return gltf
+
+    @staticmethod
+    def _change_texture_in_material(
+        gltf: GLTF2, texture: Texture, image: Image
+    ) -> GLTF2:
+        image_index = gltf.textures[texture.index].source
+        gltf.images[image_index] = image
+        return gltf
 
     def _process_gltf(self, gltf: GLTF2, request_DTO: TexturesData) -> GLTF2:
         for single_change in request_DTO.files:
@@ -172,7 +217,9 @@ class GLBTexturesRepository(IGLBTexturesRepository):
                 )
                 # Если есть, то проверим, какого она типа:
                 if pbr_metallic_roughness:
-                    base_color_texture = pbr_metallic_roughness.get("baseColorTexture")
+                    base_color_texture = pbr_metallic_roughness.get(
+                        "baseColorTexture"
+                    )
                     metallic_roughness_texture = pbr_metallic_roughness.get(
                         "metallicRoughnessTexture"
                     )
@@ -201,7 +248,9 @@ class GLBTexturesRepository(IGLBTexturesRepository):
                 # Теперь посмотрим, есть ли в материале "нормальная текстура".
                 normal_texture = (
                     "normalTexture"
-                    if isinstance(replacement_material.get("normalTexture"), dict)
+                    if isinstance(
+                        replacement_material.get("normalTexture"), dict
+                    )
                     else None
                 )
 
@@ -224,6 +273,8 @@ class GLBTexturesRepository(IGLBTexturesRepository):
     def _process_glb(gltf: GLTF2, request_DTO: TexturesData) -> str:
         gltf.convert_images(image_format=ImageFormat.DATAURI, override=True)
         new_filename = get_filename_from_timestamp(request_DTO.glbfilepath)
-        result_filepath = os.path.join(settings.editor.results_dir, new_filename)
+        result_filepath = os.path.join(
+            settings.editor.results_dir, new_filename
+        )
         gltf.save(result_filepath)
         return new_filename
