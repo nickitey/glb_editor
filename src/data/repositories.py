@@ -144,10 +144,44 @@ class GLBTexturesRepository(IGLBTexturesRepository):
                 gltf, target_material, texture_name, image, submaterial
             )
         else:
-            return self._change_texture_in_material(
-                gltf, source_texture, image
+            image_index = gltf.textures[source_texture.index].source
+            repeated_image_indexes = list(
+                filter(
+                    lambda texture: texture.source == image_index,
+                    gltf.textures
+                )
             )
+            repeated_texture_indexes = list(
+                filter(
+                    lambda material: source_texture.index ==
+                        material.pbrMetallicRoughness.baseColorTexture.index 
+                        if (isinstance(getattr(material, "pbrMetallicRoughness"), PbrMetallicRoughness) 
+                            and isinstance(getattr(material.pbrMetallicRoughness, "baseColorTexture"), TextureInfo)) 
+                        else material.pbrMetallicRoughness.metallicRoughnessTexture 
+                            if (isinstance(getattr(material, "pbrMetallicRoughness"), PbrMetallicRoughness) 
+                                and isinstance(getattr(material.pbrMetallicRoughness, "metallicRoughnessTexture"), TextureInfo)) 
+                            else material.normalTexture.index 
+                                if isinstance(getattr(material, "normalTexture"), NormalMaterialTexture) else None,
+                gltf.materials)
+            )
+            if len(repeated_image_indexes) > 1 or len(repeated_texture_indexes) > 1:
+                return self._add_texture_to_material(
+                    gltf, target_material, texture_name, image, submaterial
+                )
+            else:
+                from pprint import pprint
+                pprint(repeated_texture_indexes)
+                return self._add_image_to_texture(
+                    gltf, repeated_image_indexes[0], image
+                )
 
+    @staticmethod
+    def _add_image_to_texture(gltf: GLTF2, texture_to_change: Texture, image: Image):
+        gltf.images.append(image)
+        texture_idx = gltf.textures.index(texture_to_change)
+        gltf.textures[texture_idx].source = len(gltf.images) - 1
+        return gltf
+        
     @staticmethod
     def _add_texture_to_material(
         gltf: GLTF2,
@@ -159,8 +193,6 @@ class GLBTexturesRepository(IGLBTexturesRepository):
         examples = {
             "pbrMetallicRoughness": PbrMetallicRoughness,
             "normalTexture": NormalMaterialTexture,
-            "baseColorTexture": None,
-            "metallicRoughnessTexture": None,
         }
 
         gltf.images.append(image)
