@@ -81,7 +81,7 @@ class GLBParamsRepository(IGLBParamsRepository):
 
 class GLBTexturesRepository(IGLBTexturesRepository):
     """
-    Иерархия зависимости в GLB/GLTF-файле следующая:
+    Иерархия зависимости материалов и текстур в GLB/GLTF-файле следующая:
     Есть материал. У него есть свойства - карты текстур. Карты текстур
     ссылаются на текстуру. Текстура ссылается на изображение.
     Проблема в том, что карты текстур могут быть разными, строго говоря,
@@ -149,7 +149,7 @@ class GLBTexturesRepository(IGLBTexturesRepository):
             new_image = Image()
             new_image.uri = texture_filepath
             filename_idx = texture_filepath.rfind("/")
-            new_image.name = texture_filepath[filename_idx + 1: ]
+            new_image.name = texture_filepath[filename_idx + 1:]
 
             # Если материалов, в которых необходимо заменить текстуру, много,
             # мы сначала готовим указанные изменения, а затем конвертируем
@@ -300,10 +300,9 @@ class GLBTexturesRepository(IGLBTexturesRepository):
         """
 
         # Отыскиваем необходимый материал по его имени
-        target_materials = list(
-            filter(
-                lambda material: material.name == material_name, gltf.materials
-            )
+        target_materials = tuple(
+            material for material in gltf.materials
+            if material.name == material_name
         )
         try:
             # Если в файле нет таких материалов, возникнет ошибка.
@@ -360,12 +359,12 @@ class GLBTexturesRepository(IGLBTexturesRepository):
             # изображением, а затем подменяем в данном материале индекс
             # текстуры на индекс новой текстуры.
             image_index = gltf.textures[source_texture_map.index].source
-            textures_with_repeated_image_indexes = list(
+            textures_with_repeated_image_indexes = tuple(
                 texture
                 for texture in gltf.textures
                 if texture.source == image_index
             )
-            materials_with_repeated_texture_indexes = list(
+            materials_with_repeated_texture_indexes = tuple(
                 material
                 for material in gltf.materials
                 if self._is_texture_used_by_someone_else(
@@ -540,12 +539,22 @@ class GLBTexturesRepository(IGLBTexturesRepository):
             # Подменяем в данном объекте текстуру - теперь он ссылается
             # на последнюю добавленную текстуру в файле.
             texture_info_obj.index = len(gltf.textures) - 1
-            # Произведем сборку в обратном порядке - определим, что объект
-            # TextureInfo связан с картой текстур pbrMetallicRoughness
-            setattr(submaterial_obj, texture_name, texture_info_obj)
-            # А затем определим, что карта текстур pbrMetallicRoughness
-            # связана с соответствующим материалом файла.
-            setattr(gltf.materials[material_idx], submaterial, submaterial_obj)
+
+            # # Произведем сборку в обратном порядке - определим, что объект
+            # # TextureInfo связан с картой текстур pbrMetallicRoughness
+            # setattr(submaterial_obj, texture_name, texture_info_obj)
+            # # А затем определим, что карта текстур pbrMetallicRoughness
+            # # связана с соответствующим материалом файла.
+            # setattr(gltf.materials[material_idx], submaterial, submaterial_obj)
+
+            # Вещь, о которой я не задумывался, но проверил, и она оказалась
+            # верной: getattr() возвращает не копию объекта, она возвращает
+            # ссылку на этот объект. Это равносильно обращению напрямую
+            # к свойству объекта. Поэтому нет никакого смысла устанавливать
+            # вручную значения каких-либо атрибутов - взаимодействуя
+            # с результатом работы функции getattr(), мы взаимодействуем
+            # со свойствами объекта напрямую.
+
         else:
             # В случае с картой текстур типа normalTexture все проще и в целом
             # процесс аналогичен и понятен.
@@ -553,9 +562,9 @@ class GLBTexturesRepository(IGLBTexturesRepository):
                 gltf.materials[material_idx], texture_name
             )
             normal_texture_obj.index = len(gltf.textures) - 1
-            setattr(
-                gltf.materials[material_idx], texture_name, normal_texture_obj
-            )
+            # setattr(
+            #     gltf.materials[material_idx], texture_name, normal_texture_obj
+            # )
 
         return gltf
 
