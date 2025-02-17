@@ -80,6 +80,32 @@ class GLBParamsRepository(IGLBParamsRepository):
 
 
 class GLBTexturesRepository(IGLBTexturesRepository):
+    """
+    Иерархия зависимости в GLB/GLTF-файле следующая:
+    Есть материал. У него есть свойства - карты текстур. Карты текстур
+    ссылаются на текстуру. Текстура ссылается на изображение.
+    Проблема в том, что карты текстур могут быть разными, строго говоря,
+    двух видов: pbrMetallicRoughness, у которой могут быть два варианта
+    вложенных параметров карт текстур (один из или два сразу),
+    и normalTexture, которая сразу содержит ссылку на текстуру.
+    Схематически:
+                                Material
+                                  /  \
+                                 /    \
+                                /      \
+                               /        \
+                              /          \
+                             /            \
+            pbrMetallicRoughness        normalTexture
+                 /         \                  |
+                /           \               index
+               /             \
+              /               \
+        baseColorTexture   metallicRoughnessTexture
+               |                       |
+             index                   index
+    """
+
     async def change_textures(self, request_data_object: TexturesData):
         glbfilepath = os.path.join(
             settings.editor.source_dir, request_data_object.glbfilepath
@@ -111,125 +137,19 @@ class GLBTexturesRepository(IGLBTexturesRepository):
             )
         return {"status": "Готово", "filename": new_filename}
 
-    def _replace_image_in_texture(
-        self,
-        gltf: GLTF2,
-        material_name: str,
-        texture_name: str,
-        image: Image,
-        submaterial: str | None = None,
-    ) -> GLTF2:
-        target_materials = list(
-            filter(
-                lambda material: material.name == material_name, gltf.materials
-            )
-        )
-        try:
-            assert len(target_materials) != 0
-        except AssertionError:
-            raise GLBEditorException(
-                detail="В редактируемом файле отсутствет материал с именем "
-                f"{material_name}, указанным в поступившем запросе",
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
-            # TODO: Реализовать подобный функционал вместо ошибки.
-        target_material = target_materials[0]
-        source_texture = (
-            getattr(getattr(target_material, submaterial), texture_name)
-            if submaterial
-            else getattr(target_material, texture_name)
-        )
-        if source_texture is None:
-            return self._add_texture_to_material(
-                gltf, target_material, texture_name, image, submaterial
-            )
-        else:
-            image_index = gltf.textures[source_texture.index].source
-            repeated_image_indexes = list(
-                filter(
-                    lambda texture: texture.source == image_index,
-                    gltf.textures
-                )
-            )
-            repeated_texture_indexes = list(
-                filter(
-                    lambda material: source_texture.index ==
-                        material.pbrMetallicRoughness.baseColorTexture.index 
-                        if (isinstance(getattr(material, "pbrMetallicRoughness"), PbrMetallicRoughness) 
-                            and isinstance(getattr(material.pbrMetallicRoughness, "baseColorTexture"), TextureInfo)) 
-                        else material.pbrMetallicRoughness.metallicRoughnessTexture 
-                            if (isinstance(getattr(material, "pbrMetallicRoughness"), PbrMetallicRoughness) 
-                                and isinstance(getattr(material.pbrMetallicRoughness, "metallicRoughnessTexture"), TextureInfo)) 
-                            else material.normalTexture.index 
-                                if isinstance(getattr(material, "normalTexture"), NormalMaterialTexture) else None,
-                gltf.materials)
-            )
-            if len(repeated_image_indexes) > 1 or len(repeated_texture_indexes) > 1:
-                return self._add_texture_to_material(
-                    gltf, target_material, texture_name, image, submaterial
-                )
-            else:
-                from pprint import pprint
-                pprint(repeated_texture_indexes)
-                return self._add_image_to_texture(
-                    gltf, repeated_image_indexes[0], image
-                )
-
-    @staticmethod
-    def _add_image_to_texture(gltf: GLTF2, texture_to_change: Texture, image: Image):
-        gltf.images.append(image)
-        texture_idx = gltf.textures.index(texture_to_change)
-        gltf.textures[texture_idx].source = len(gltf.images) - 1
-        return gltf
-        
-    @staticmethod
-    def _add_texture_to_material(
-        gltf: GLTF2,
-        material: Material,
-        texture_name: str,
-        image: Image,
-        submaterial: str = None,
-    ) -> GLTF2:
-        examples = {
-            "pbrMetallicRoughness": PbrMetallicRoughness,
-            "normalTexture": NormalMaterialTexture,
-        }
-
-        gltf.images.append(image)
-
-        texture = Texture()
-        texture.source = len(gltf.images) - 1
-        gltf.textures.append(texture)
-
-        material_idx = gltf.materials.index(material)
-        if submaterial:
-            new_texture = examples[submaterial]()
-            new_nexture_info = TextureInfo()
-            new_nexture_info.index = len(gltf.textures) - 1
-            setattr(new_texture, texture_name, new_nexture_info)
-            setattr(gltf.materials[material_idx], submaterial, new_texture)
-        else:
-            new_texture = examples[texture_name]()
-            new_texture.index = len(gltf.textures) - 1
-            setattr(gltf.materials[material_idx], texture_name, new_texture)
-        return gltf
-
-    @staticmethod
-    def _change_texture_in_material(
-        gltf: GLTF2, texture: Texture, image: Image
-    ) -> GLTF2:
-        image_index = gltf.textures[texture.index].source
-        gltf.images[image_index] = image
-        return gltf
-
     def _process_gltf(self, gltf: GLTF2, request_DTO: TexturesData) -> GLTF2:
         for single_change in request_DTO.files:
             texture_filepath = os.path.join(
                 settings.editor.textures_dir, single_change.texturefilepath
             )
 
+            # В любом случае мы привносим в файл новое изображение, поэтому
+            # целесообразно всегда создавать новый объект изображения, который
+            # затем использовать в различных сценариях.
             new_image = Image()
             new_image.uri = texture_filepath
+            filename_idx = texture_filepath.rfind("/")
+            new_image.name = texture_filepath[filename_idx + 1: ]
 
             # Если материалов, в которых необходимо заменить текстуру, много,
             # мы сначала готовим указанные изменения, а затем конвертируем
@@ -238,16 +158,24 @@ class GLBTexturesRepository(IGLBTexturesRepository):
                 material_name = replacement_material["name"]
 
                 # Определим, какие материалы требуется заменить.
-                # В материале может быть два типа текстур металлическая
+                # В материале может быть два типа текстур "металлическая"
                 # (pbrMetallicRoughness) или "нормальная" (normalTexture).
-                # У металлической есть вложенность - там может быть либо
-                # baseColorTexture, либо metallicRoughnessTexture, а уже
-                # у какой-то из них искомый нам индекс.
-                # Посмотрим, есть ли в материале металлическая текстура
+                # Мы проверяем запрос, требуется ли от нас заменить карту
+                # материала типа pbrMetallicRoughness.
                 pbr_metallic_roughness = replacement_material.get(
                     "pbrMetallicRoughness"
                 )
-                # Если есть, то проверим, какого она типа:
+                # У этой карты по спецификации есть вложенность - внутри нее
+                # может быть структура baseColorTexture или metallicRoughnessTexture.
+                # Или вообще и то, и другое. И в каждой из них может находиться
+                # индекс конкретной текстуры, которую нам необходимо заменить.
+                # Поэтому мы создаем список, какие виды вложенных "металлических"
+                # текстур есть в запросе и предполагаются к замене.
+                # Создаем мы этот список здесь, чтобы он попал в область видимости
+                # вне условной конструкции. Проверять наличие в нем элементов
+                # мы будем на этапе уже конкретной замены элементов в файле.
+                metallic_textures = []
+
                 if pbr_metallic_roughness:
                     base_color_texture = pbr_metallic_roughness.get(
                         "baseColorTexture"
@@ -256,14 +184,19 @@ class GLBTexturesRepository(IGLBTexturesRepository):
                         "metallicRoughnessTexture"
                     )
                     # Поскольку пустой словарь определяется как False в условных
-                    # конструкциях, мы явно проверяем тип данных, а затем
-                    # принимаем решение, какого типа текстуру будем искать
-                    # в изменяемом файле
-                    if isinstance(base_color_texture, dict):
-                        metallic_texture = "baseColorTexture"
-                    elif isinstance(metallic_roughness_texture, dict):
-                        metallic_texture = "metallicRoughnessTexture"
-                    else:
+                    # конструкциях, мы явно проверяем тип данных, не None ли
+                    # вернулся нам при попытке получить значение по ключу
+                    # "pbrMetallicRoughness".
+                    is_base_color_texture = isinstance(
+                        base_color_texture, dict
+                    )
+                    is_metallic_roughness_texture = isinstance(
+                        metallic_roughness_texture, dict
+                    )
+
+                    if not (
+                        is_base_color_texture or is_metallic_roughness_texture
+                    ):
                         raise GLBEditorException(
                             detail="Необходимо уточнить в запросе, какой тип"
                             " текстуры в материале типа pbrMetallicRoughness"
@@ -272,10 +205,11 @@ class GLBTexturesRepository(IGLBTexturesRepository):
                             " и baseColorTexture.",
                             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                         )
-                else:
-                    # Если такая текстура в принципе отсутствует в запросе,
-                    # то мы явно объявим это в коде для наглядности.
-                    metallic_texture = None
+
+                    if is_base_color_texture:
+                        metallic_textures.append("baseColorTexture")
+                    if is_metallic_roughness_texture:
+                        metallic_textures.append("metallicRoughnessTexture")
 
                 # Теперь посмотрим, есть ли в материале "нормальная текстура".
                 normal_texture = (
@@ -287,14 +221,15 @@ class GLBTexturesRepository(IGLBTexturesRepository):
                 )
 
                 # А затем заменим требуемые, определив сами объекты текстур в файле.
-                if metallic_texture:
-                    gltf = self._replace_image_in_texture(
-                        gltf,
-                        material_name,
-                        metallic_texture,
-                        new_image,
-                        "pbrMetallicRoughness",
-                    )
+                if metallic_textures:
+                    for metallic_texture in metallic_textures:
+                        gltf = self._replace_image_in_texture(
+                            gltf,
+                            material_name,
+                            metallic_texture,
+                            new_image,
+                            "pbrMetallicRoughness",
+                        )
                 if normal_texture:
                     gltf = self._replace_image_in_texture(
                         gltf, material_name, "normalTexture", new_image
@@ -310,3 +245,354 @@ class GLBTexturesRepository(IGLBTexturesRepository):
         )
         gltf.save(result_filepath)
         return new_filename
+
+    def _replace_image_in_texture(
+        self,
+        gltf: GLTF2,
+        material_name: str,
+        texture_info: str,
+        image: Image,
+        submaterial: str | None = None,
+    ) -> GLTF2:
+        """
+        Метод занимается узкой задачей замены текстуры в файле. Логика работы
+        следующая:
+        1) Определяется наличие в файле материала, который пришел в запросе;
+        2) Определяется, на какие текстуры ссылается материал. Вот это и есть
+        самая трудоемкая задача - как раз в силу абсолютной опциональности
+        наличия той или иной карты текстур в редактируемом файле. Мы не можем
+        просто перебрать все свойства материала, потому что не все они связаны
+        с текстурами в принципе, они называются по-разному и имеют разную
+        вложенность, то есть, добраться до искомого параметра source можно
+        различными путями, что несколько усложняет задачу;
+        3) Производится проверка, ссылается ли еще кто-либо на эту текстуру;
+        4) Если никто не ссылается - то заменяется целиком изображение, ссылка
+        в текстуре остается та же, но ведет она на новое изображение;
+        5) Если другие материалы ссылаются на эту текстуру или другие текстуры
+        ссылаются на одну картинку - добавляется новая картинка, на которую
+        ссылается вновь созданная текстура, на которую в свою очередь начинает
+        ссылаться материал;
+        3.1) Параллельно производится проверка, существует ли необходимая карта
+        текстур в исходном файле;
+        4.1) Если не существует, создается новый объект карты текстур, который
+        ссылается на новый объект текстуры, которая ссылается на новое
+        изображение.
+
+        Args:
+            gltf (GLTF2): объект редактуируемого 3Д-файла
+            material_name (str): название материала, в котором изменяется
+            текстура, для его поиска в структуре файла
+            texture_info (str): тип карты текстуры: normalTexture,
+            baseColorTexture, metallicRoughnessTexture, словом, тот, у кого
+            есть параметр index со ссылкой на текстуру
+            image (Image): объект изображения. Во всяком случае объект
+            изображения создается новый, будет ли он заменять уже существующий
+            или займет место в новой текстуре
+            submaterial (str | None, optional): На случай, если карта у нас
+            baseColorTexture или metallicRoughnessTexture, до них приходится
+            добираться через объект pbrMetallicRoughness. Собственно, в этот
+            параметр передается либо pbrMetallicRoughness, либо дефолтное
+            значение None.
+
+        Returns:
+            GLTF2: редактированный объект GLTF2, готовый к конвертации
+            изображений и записи в новый файл.
+        """
+
+        # Отыскиваем необходимый материал по его имени
+        target_materials = list(
+            filter(
+                lambda material: material.name == material_name, gltf.materials
+            )
+        )
+        try:
+            # Если в файле нет таких материалов, возникнет ошибка.
+            assert len(target_materials) != 0
+        except AssertionError:
+            raise GLBEditorException(
+                detail="В редактируемом файле отсутствет материал с именем "
+                f"{material_name}, указанным в поступившем запросе",
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+            # TODO: Реализовать подобный функционал вместо ошибки.
+        # Теоретически не должно быть двух материалов с одинаковыми именами,
+        # если это не так, то имеет место коллизия, которую нужно рассмотреть
+        # отдельно.
+        target_material = target_materials[0]
+
+        # Здесь мы отбираем у полученного материала соответствующий объект
+        # карты текстуры, чтобы понять, на какую текстуру она ссылается.
+        # Пример:
+        # source_texture_map = getattr(
+        #     getattr(Material, "pbrMetallicRoughness"),
+        #     "baseColorTexture"
+        # )
+        # вернет нам либо None, если таких объектов в материале нет, а значит
+        # нужно добавить текстуру, либо объект класса TextureInfo, в котором
+        # будет ссылка на текстуру.
+        # "baseColorTexture" и "pbrMetallicRoughess" берутся из тела запроса,
+        # т.е. на этом этапе происходит проверка наличия запрашиваемой
+        # к изменению текстуры в самом изменяемом файле.
+        # Если у нас normalTexture, то submaterial опускается, пример вызова
+        # выглядит так:
+        # source_texture_map = getattr(Material, "normalTexture")
+        source_texture_map = (
+            getattr(getattr(target_material, submaterial), texture_info)
+            if submaterial
+            else getattr(target_material, texture_info)
+        )
+        if source_texture_map is None:
+            # Если заданная в запросе текстура, а точнее карта текстур в материале
+            # отсутствует, мы просто создаем все с нуля - карту, текстуру, объект
+            # изображения и интегрируем их в файл.
+            return self._add_texture_map_to_material(
+                gltf, target_material, texture_info, image, submaterial
+            )
+        else:
+            # Если карта соответствующая карта текстур в файле есть, нам нужно
+            # проверить две вещи:
+            # 1) Есть ли кто-то еще, какая-то карта текстур, которая ссылается
+            # на эту же текстуру;
+            # 2) Есть ли какая-то еще текстура, которая ссылается на это же
+            # изображение
+            # Если ответ на какой-либо из вопросов "Да", то мы, не изменяя
+            # тип карты текстур, создаем новую текстуру, связанную с новым
+            # изображением, а затем подменяем в данном материале индекс
+            # текстуры на индекс новой текстуры.
+            image_index = gltf.textures[source_texture_map.index].source
+            textures_with_repeated_image_indexes = list(
+                texture
+                for texture in gltf.textures
+                if texture.source == image_index
+            )
+            materials_with_repeated_texture_indexes = list(
+                material
+                for material in gltf.materials
+                if self._is_texture_used_by_someone_else(
+                    material, source_texture_map.index
+                )
+            )
+            if (
+                len(textures_with_repeated_image_indexes) > 1
+                or len(materials_with_repeated_texture_indexes) > 1
+            ):
+                return self._change_texture_in_material(
+                    gltf, target_material, texture_info, image, submaterial
+                )
+            else:
+                # Если ответ "Нет", то мы можем безболезненно, не создавая
+                # новую текстуру и не раздувая общее число текстур в файле,
+                # добавить новое изображение и заставить текстуру ссылаться
+                # на него, не опасаясь того, что другие материалы, использующие
+                # данную текстуру, тоже случайно поменяют изображение.
+                # Остается, конечно, проблема, неуникальности материалов,
+                # то есть, когда разные элементы состоят из одного материала,
+                # и замена текстуры одного материала повлияет сразу на несколько
+                # элементов модели, но тут уж ничего, наверное, не поделать.
+                return self._add_image_to_texture(
+                    gltf, textures_with_repeated_image_indexes[0], image
+                )
+
+    @staticmethod
+    def _add_image_to_texture(
+        gltf: GLTF2, texture_to_change: Texture, image: Image
+    ) -> GLTF2:
+        """
+        Метод, который подменяет ссылку на изображение сразу в текстуре.
+        Материалы, карты текстур - все это остается неизменным.
+        """
+        # Получим индекс текстуры, которую нам нужно изменить.
+        # Заодно изменим имя текстуры на необходимое.
+        texture_idx = gltf.textures.index(texture_to_change)
+        image_name_extension = image.name.rfind(".")
+        gltf.textures[texture_idx].name = image.name[:image_name_extension]
+        try:
+            # Попробуем понять, работали ли мы на предыдущей итерации с данным
+            # изображением. Если работали, просто найдем его индекс и заменим
+            # ссылку в текстуре
+            image_index = gltf.images.index(image)
+            gltf.textures[texture_idx].source = image_index
+        except ValueError:
+            # Если не работали, добавим изображение в список изображений
+            # и укажем в текстуре ссылку на новое изображение - последнее
+            # в общем списке.
+            gltf.images.append(image)
+            gltf.textures[texture_idx].source = len(gltf.images) - 1
+        return gltf
+
+    @staticmethod
+    def _add_texture_map_to_material(
+        gltf: GLTF2,
+        material: Material,
+        texture_name: str,
+        image: Image,
+        submaterial: str = None,
+    ) -> GLTF2:
+        """
+        Метод для добавления новой карты текстуры целиком в файл.
+        """
+        # Существующие варианты карты текстур
+        textures_map = {
+            "pbrMetallicRoughness": PbrMetallicRoughness,
+            "normalTexture": NormalMaterialTexture,
+        }
+        # Новая текстура, которая будет связана с новой картой
+        texture = Texture()
+        image_name_extension = image.name.rfind(".")
+        texture.name = image.name[:image_name_extension]
+
+        try:
+            # Попробуем найти, вдруг на предыдущей итерации новое изображение
+            # уже было добавлено в файл.
+            image_index = gltf.images.index(image)
+            # Если находим, используем для текстуры его индекс
+            texture.source = image_index
+        except ValueError:
+            # Если же нет, добавляем изображение в список изображений файла,
+            # индекс изображения стандартный - длина списка изображений минус
+            # один
+            gltf.images.append(image)
+            texture.source = len(gltf.images) - 1
+
+        # Добавляем текстуру со ссылкой на изображение в общий список текстур
+        gltf.textures.append(texture)
+
+        # Определяем порядковый индекс материала в списке материалов файла
+        material_idx = gltf.materials.index(material)
+        # Если карта текстур pbrMetallicRoughness, нужно соблюсти вложенность
+        # структуры
+        if submaterial:
+            # Создадим объект TextureInfo - он является общим типом объекта
+            # для baseColorTexture и metallicRoughnessTexture
+            new_texture_info = TextureInfo()
+            # Определим, что ссылается этот объект в качестве текстуры
+            # на последнюю добавленную текстуру
+            new_texture_info.index = len(gltf.textures) - 1
+            # Создадим объект pbrMetallicRoughness, родительский для объектов
+            # baseColorTexture и metallicRoughnessTexture, воспользовавшись
+            # подготовленным словарем
+            new_texture = textures_map[submaterial]()
+            # По иерархии снизу вверх привяжем сначала объект TextureInfo
+            # к объекту pbrMetallicRoughness, конкретное имя свойства при этом
+            # (baseColorTexture или metallicRoughnessTexture) будет также
+            # учтено, поскольку данное имя взято из запроса и содержится
+            # в переменной texture_name
+            setattr(new_texture, texture_name, new_texture_info)
+            # А затем уже привяжем карту текстур - объект pbrMetallicRoughness
+            # к необходимому материалу из списка материалов в файле.
+            setattr(gltf.materials[material_idx], submaterial, new_texture)
+        else:
+            # Если нужно создать карту текстур типа normalTexture, все гораздо
+            # проще.
+            # Создаем пустую карту текстур
+            new_texture = textures_map[texture_name]()
+            # Привязываем к ней последнюю добавленную текстуру
+            new_texture.index = len(gltf.textures) - 1
+            # Связываем карту текстур с необходимым материалом.
+            setattr(gltf.materials[material_idx], texture_name, new_texture)
+        return gltf
+
+    @staticmethod
+    def _change_texture_in_material(
+        gltf: GLTF2,
+        material: Material,
+        texture_name: str,
+        image: Image,
+        submaterial: str = None,
+    ) -> GLTF2:
+        """
+        Метод, который добавляет текстуру и подменяет ссылку в материале так,
+        чтобы он ссылался на новую текстуру.
+        """
+        # Во всяком случае нам нужно создать новую текстуру.
+        texture = Texture()
+        image_name_extension = image.name.rfind(".")
+        texture.name = image.name[:image_name_extension]
+        try:
+            # Попробуем найти, вдруг на предыдущей итерации новое изображение
+            # уже было добавлено в файл.
+            image_index = gltf.images.index(image)
+            # Если находим, используем для текстуры его индекс
+            texture.source = image_index
+        except ValueError:
+            # Если же нет, добавляем изображение в список изображений файла,
+            # индекс изображения стандартный - длина списка изображений минус
+            # один
+            gltf.images.append(image)
+            texture.source = len(gltf.images) - 1
+
+        # Добавляем текстуру со ссылкой на изображение в общий список текстур
+        gltf.textures.append(texture)
+
+        # Определяем порядковый индекс материала в списке материалов файла
+        material_idx = gltf.materials.index(material)
+        # Если карта текстур pbrMetallicRoughness, нужно соблюсти вложенность
+        # структуры
+        if submaterial:
+            # Сначала мы получаем доступ к карте текстур pbrMetallicRoughness
+            submaterial_obj = getattr(
+                gltf.materials[material_idx], submaterial
+            )
+            # Получаем из нее объект класса TextureInfo - это либо
+            # baseColorTexture, либо metallicRoughnessTexture, в любом случае
+            # соответствующий атрибут мы получаем из запроса.
+            texture_info_obj = getattr(submaterial_obj, texture_name)
+            # Подменяем в данном объекте текстуру - теперь он ссылается
+            # на последнюю добавленную текстуру в файле.
+            texture_info_obj.index = len(gltf.textures) - 1
+            # Произведем сборку в обратном порядке - определим, что объект
+            # TextureInfo связан с картой текстур pbrMetallicRoughness
+            setattr(submaterial_obj, texture_name, texture_info_obj)
+            # А затем определим, что карта текстур pbrMetallicRoughness
+            # связана с соответствующим материалом файла.
+            setattr(gltf.materials[material_idx], submaterial, submaterial_obj)
+        else:
+            # В случае с картой текстур типа normalTexture все проще и в целом
+            # процесс аналогичен и понятен.
+            normal_texture_obj = getattr(
+                gltf.materials[material_idx], texture_name
+            )
+            normal_texture_obj.index = len(gltf.textures) - 1
+            setattr(
+                gltf.materials[material_idx], texture_name, normal_texture_obj
+            )
+
+        return gltf
+
+    @staticmethod
+    def _is_texture_used_by_someone_else(material, compared_index):
+        pbr_metallic_roughness = getattr(material, "pbrMetallicRoughness")
+        pbr_metallic_roughness_exists = isinstance(
+            pbr_metallic_roughness, PbrMetallicRoughness
+        )
+
+        normal_texture = getattr(material, "normalTexture")
+        normal_texture_exists = isinstance(
+            normal_texture, NormalMaterialTexture
+        )
+
+        if pbr_metallic_roughness_exists:
+            base_color_texture = getattr(
+                pbr_metallic_roughness, "baseColorTexture"
+            )
+            base_color_texture_exists = isinstance(
+                base_color_texture, TextureInfo
+            )
+
+            metallic_roughness_texture = getattr(
+                pbr_metallic_roughness, "metallicRoughnessTexture"
+            )
+            metallic_roughness_texture_exists = isinstance(
+                metallic_roughness_texture, TextureInfo
+            )
+        else:
+            base_color_texture_exists = None
+            metallic_roughness_texture_exists = None
+
+        if normal_texture_exists:
+            return compared_index == normal_texture.index
+        if base_color_texture_exists:
+            return compared_index == base_color_texture.index
+        if metallic_roughness_texture_exists:
+            return compared_index == metallic_roughness_texture.index
+        return False
