@@ -5,7 +5,7 @@ docker build -t glb_editor-glb_editor -f Dockerfile .
 echo "$(date +%H:%M:%S\ %d.%m.%Y): Сборка образа веб-сервера закончена"
 echo "$(date +%H:%M:%S\ %d.%m.%Y): Запускаю контейнер с сервером. Сервер слушает запросы, поступающие на порт $UVICORN_PORT хоста"
 docker run --rm \
-	--name ar_converter \
+	--name glb_editor \
     -v $PWD/:/usr/apps/glb_editor/ \
 	-v $SOURCE_DIR:/usr/glb/source \
     -v $RESULTS_DIR:/usr/glb/results \
