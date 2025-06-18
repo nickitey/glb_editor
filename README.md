@@ -114,7 +114,7 @@
 ```JSON
 {
     "status": "Готово",
-    "filename": "Stul_085058.glb"
+    "filename": "/opt/results/Stul_085058.glb"
 }
 ```
 
@@ -123,7 +123,8 @@
 Структура тела запроса:
 
 ```JSON
-    "glbfilepath": <str>,
+    "source_glbfilepath": <str>,
+    "result_filepath": <str>
     "files": [
       {
         "texturefilepath": <str>, 
@@ -132,7 +133,7 @@
     ]
 ```
 
-Параметр `glbfilepath` аналогичен `filepath` из предыдущего пункта, `files` - массив характеристик изменяемых текстур, где `texturefilepath` - имя нового файла текстуры, который подлежит вставке в редактируемый файл и который уже находится в директории `TEXTURES_DIR`, `materials` снова повторяет таковой из предыдущего пункта.
+Параметры `source_glbfilepath` и `result_filepath` аналогичны `source_filepath` и `result_filepath` из предыдущего пункта соответственно, `files` - массив характеристик изменяемых текстур, где `texturefilepath` - имя нового файла текстуры, который подлежит вставке в редактируемый файл, `materials` снова повторяет таковой из предыдущего пункта.
 
 В процессе обработки запроса в редактируемом файле по имени отбираются материалы, json-репрезентация которых содержится в теле запроса. После этого анализируется тип текстуры: `pbrMetallicRoughness`, `normalTexture` и вычисляется, на какие непосредственно объекты текстур ссылаются указанные материалы. После чего изображение, на которое ссылается текстура, подменяется на новое, полученное из файла, имя которого указано в запросе.
 
@@ -140,10 +141,11 @@
 
 ```JSON
 {
-    "glbfilepath": "AmoebaBabylonDissasemble.glb",
+    "source_glbfilepath": "/var/resources/AmoebaBabylonDissasemble.glb",
+    "result_filepath": "/tmp",
     "files": [
       {
-      "texturefilepath": "volcano.png",
+      "texturefilepath": "/one/texture/dir/texturefile.png",
       "materials": [
           {
             "name": "GLB Nucleus 01",
@@ -154,7 +156,7 @@
         ]
       },
       {
-        "texturefilepath": "loo.png",
+        "texturefilepath": "/some/other/dir/woodrat-xl.png",
         "materials": [
           {
             "normalTexture": {},
@@ -176,11 +178,11 @@
 ```JSON
 {
     "status": "Готово",
-    "filename": "AmoebaBabylonDissasemble_085058.glb"
+    "filename": "/tmp/AmoebaBabylonDissasemble_085058.glb"
 }
 ```
 
-После редактирования измененный файл сохраняется в директории `RESULTS_DIR`. Расширение файла не изменяется, к исходному имени файла добавляется последовательность цифр для избежания перезаписи уже существующего файла в указанной директории.
+После редактирования расширение файла не изменяется, к исходному имени файла добавляется последовательность цифр для избежания перезаписи уже существующего файла в указанной директории.
 
 
 [^1]: Написание имеет значение, `true/false` строчными буквами вызовет ошибку.

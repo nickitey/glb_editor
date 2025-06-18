@@ -17,5 +17,6 @@ class _SingleTextureChange:
 
 @dataclass
 class TexturesData:
-    glbfilepath: str
+    source_glbfilepath: str
+    result_filepath: str
     files: List[_SingleTextureChange]

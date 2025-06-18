@@ -68,18 +68,19 @@ class GLBParamsRepository(IGLBParamsRepository):
             back_convert = gltf.gltf_from_json(json.dumps(gltf_dict))
             back_convert.set_binary_blob(gltf.binary_blob())
             new_filename = get_filename_from_timestamp(
-                request_data_object.source_filepath.split("/")[-1]
+                request_data_object.source_filepath.split("/").pop()
             )
-            result_filepath = f"{request_data_object.result_filepath}/{new_filename}"
             if not os.path.exists(request_data_object.result_filepath):
                 os.mkdir(request_data_object.result_filepath)
+
+            result_filepath = os.path.join(request_data_object.result_filepath, new_filename)
             back_convert.save(result_filepath)
         except Exception as e:
             raise GLBEditorException(
                 detail=f"Exception occurred: {e}",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-        return {"status": "Готово", "filename": new_filename}
+        return {"status": "Готово", "result": result_filepath}
 
 
 class GLBTexturesRepository(IGLBTexturesRepository):
@@ -110,10 +111,13 @@ class GLBTexturesRepository(IGLBTexturesRepository):
     """
 
     async def change_textures(self, request_data_object: TexturesData):
-        glbfilepath = os.path.join(
-            settings.editor.source_dir, request_data_object.glbfilepath
-        )
-        gltf = GLTF2().load(glbfilepath)
+        source_glbfilepath = request_data_object.source_glbfilepath
+        if not os.path.exists(source_glbfilepath):
+            raise GLBEditorException(
+                detail='Файл "%s" отсутствует на сервере' % source_glbfilepath,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        gltf = GLTF2().load(source_glbfilepath)
 
         # Работа по замене текстуры складывается из двух этапов:
         # 1. Декларировать, какие изображения текстур изменяются (работа с JSON
@@ -129,7 +133,7 @@ class GLBTexturesRepository(IGLBTexturesRepository):
             # который сможет храниться внутри единого GLB-файла.
             # К сожалению, библиотека pygltflib не поддерживает формат Bufferview.
             # Остается только кодирование в DataURI.
-            new_filename = self._process_glb(gltf, request_data_object)
+            result_filepath = self._process_glb(gltf, request_data_object)
 
         except GLBEditorException as e:
             raise e
@@ -138,13 +142,16 @@ class GLBTexturesRepository(IGLBTexturesRepository):
                 detail=f"Exception occured: {e}",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-        return {"status": "Готово", "filename": new_filename}
+        return {"status": "Готово", "result": result_filepath}
 
     def _process_gltf(self, gltf: GLTF2, request_DTO: TexturesData) -> GLTF2:
         for single_change in request_DTO.files:
-            texture_filepath = os.path.join(
-                settings.editor.textures_dir, single_change.texturefilepath
-            )
+            texture_filepath = single_change.texturefilepath
+            if not os.path.exists(texture_filepath):
+                raise GLBEditorException(
+                    detail='Файл текстуры "%s" отсутствует на сервере' % texture_filepath,
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
 
             # В любом случае мы привносим в файл новое изображение, поэтому
             # целесообразно всегда создавать новый объект изображения, который
@@ -242,12 +249,13 @@ class GLBTexturesRepository(IGLBTexturesRepository):
     @staticmethod
     def _process_glb(gltf: GLTF2, request_DTO: TexturesData) -> str:
         gltf.convert_images(image_format=ImageFormat.DATAURI, override=True)
-        new_filename = get_filename_from_timestamp(request_DTO.glbfilepath)
-        result_filepath = os.path.join(
-            settings.editor.results_dir, new_filename
-        )
+        new_filename = get_filename_from_timestamp(request_DTO.source_glbfilepath.split("/").pop())
+        if not os.path.exists(request_DTO.result_filepath):
+            os.mkdir(request_DTO.result_filepath)
+
+        result_filepath = os.path.join(request_DTO.result_filepath, new_filename)
         gltf.save(result_filepath)
-        return new_filename
+        return result_filepath
 
     def _replace_image_in_texture(
         self,

@@ -39,5 +39,6 @@ class _SingleTextureChange(BaseModel):
 
 
 class TexturesRequestModel(BaseModel):
-    glbfilepath: str
+    source_glbfilepath: str
+    result_filepath: str
     files: List[_SingleTextureChange]
