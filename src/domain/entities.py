@@ -4,7 +4,8 @@ from typing import Any, Dict, List
 
 @dataclass
 class PropertiesData:
-    filepath: str
+    source_filepath: str
+    result_filepath: str
     materials: List[Dict[str, Any]]
 
 

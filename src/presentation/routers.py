@@ -131,7 +131,8 @@ async def change_file_params(
     else:
         _ = None
         data_object = PropertiesData(
-            filepath=request_data["filepath"],
+            source_filepath=request_data["source_filepath"],
+            result_filepath=request_data["result_filepath"],
             materials=request_data["materials"],
         )
         result = await usecase.params_editor_usecase.invoke(data_object)

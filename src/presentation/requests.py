@@ -28,7 +28,8 @@ class MaterialModel(BaseModel):
 
 
 class MaterialsRequestModel(BaseModel):
-    filepath: str
+    source_filepath: str
+    result_filepath: str
     materials: List[MaterialModel]
 
 

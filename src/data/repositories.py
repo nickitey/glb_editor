@@ -41,10 +41,13 @@ class GLBParamsRepository(IGLBParamsRepository):
         return temp
 
     async def change_parameters(self, request_data_object: PropertiesData):
-        filepath = os.path.join(
-            settings.editor.source_dir, request_data_object.filepath
-        )
-        gltf = GLTF2().load(filepath)
+        source_filepath = request_data_object.source_filepath
+        if not os.path.exists(source_filepath):
+            raise GLBEditorException(
+                detail='Файл "%s" отсутствует на сервере' % source_filepath,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        gltf = GLTF2().load(source_filepath)
         gltf_dict = json.loads(gltf.gltf_to_json())
         materials = gltf_dict["materials"]
         changing_params_names = [
@@ -65,11 +68,11 @@ class GLBParamsRepository(IGLBParamsRepository):
             back_convert = gltf.gltf_from_json(json.dumps(gltf_dict))
             back_convert.set_binary_blob(gltf.binary_blob())
             new_filename = get_filename_from_timestamp(
-                request_data_object.filepath
+                request_data_object.source_filepath.split("/")[-1]
             )
-            result_filepath = os.path.join(
-                settings.editor.results_dir, new_filename
-            )
+            result_filepath = f"{request_data_object.result_filepath}/{new_filename}"
+            if not os.path.exists(request_data_object.result_filepath):
+                os.mkdir(request_data_object.result_filepath)
             back_convert.save(result_filepath)
         except Exception as e:
             raise GLBEditorException(
