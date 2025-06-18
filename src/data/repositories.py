@@ -2,6 +2,7 @@
 import json
 import os
 from copy import deepcopy
+from typing import Optional
 
 from fastapi import status
 from pygltflib import (GLTF2, Material, NormalMaterialTexture,
@@ -263,7 +264,7 @@ class GLBTexturesRepository(IGLBTexturesRepository):
         material_name: str,
         texture_info: str,
         image: Image,
-        submaterial: str | None = None,
+        submaterial: Optional[str] = None,
     ) -> GLTF2:
         """
         Метод занимается узкой задачей замены текстуры в файле. Логика работы

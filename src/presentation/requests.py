@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from pydantic import BaseModel
 
@@ -15,16 +15,16 @@ class TextureInfoModel(BaseModel):
 
 
 class PbrMetallicRoughnessModel(BaseModel):
-    baseColorFactor: Optional[List[int | float]] = None
-    metallicFactor: Optional[int | float] = None
-    roughnessFactor: Optional[int | float] = None
+    baseColorFactor: Optional[List[Union[int, float]]] = None
+    metallicFactor: Optional[Union[int, float]] = None
+    roughnessFactor: Optional[Union[int, float]] = None
     baseColorTexture: Optional[TextureInfoModel] = None
 
 
 class MaterialModel(BaseModel):
     name: str
-    pbrMetallicRoughness: PbrMetallicRoughnessModel | None = None
-    normalMaterialTexture: NormalMaterialTextureModel | None = None
+    pbrMetallicRoughness: Optional[PbrMetallicRoughnessModel] = None
+    normalMaterialTexture: Optional[NormalMaterialTextureModel] = None
 
 
 class MaterialsRequestModel(BaseModel):
